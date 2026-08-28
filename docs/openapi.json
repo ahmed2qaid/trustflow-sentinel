@@ -1,0 +1,33 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "TrustFlow Sentinel API",
+    "version": "0.1.0",
+    "description": "Evidence-gated B2B payment change verification. The running FastAPI service exposes the full generated specification at /openapi.json."
+  },
+  "paths": {
+    "/health": {"get": {"summary": "Service health and integration modes"}},
+    "/api/requests": {
+      "get": {"summary": "List payment change requests"},
+      "post": {"summary": "Create a payment change request"}
+    },
+    "/api/requests/{request_id}/process-documents": {
+      "post": {"summary": "Extract and normalize document evidence with Nutrient DWS"}
+    },
+    "/api/requests/{request_id}/web-enrichment": {
+      "post": {"summary": "Collect live external consistency evidence with SerpApi"}
+    },
+    "/api/requests/{request_id}/evaluate": {
+      "post": {
+        "summary": "Evaluate deterministic evidence policies",
+        "description": "Returns ALLOW, REVIEW_REQUIRED, or BLOCK with explainable policy checks and reason codes."
+      }
+    },
+    "/api/requests/{request_id}/review": {
+      "post": {"summary": "Human decision for REVIEW_REQUIRED cases only"}
+    },
+    "/api/requests/{request_id}/audit": {
+      "get": {"summary": "Read the append-oriented case audit trail"}
+    }
+  }
+}
