@@ -79,7 +79,7 @@ def upload_document(
     settings = get_settings()
     document_id = str(uuid4())
     suffix = Path(file.filename or "document.pdf").suffix or ".pdf"
-    path = Path(settings.upload_dir) / f"{document_id}{suffix}"
+    path = settings.resolve_upload_dir() / f"{document_id}{suffix}"
     with path.open("wb") as output:
         shutil.copyfileobj(file.file, output)
     db.insert(

@@ -1,10 +1,13 @@
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 import httpx
 
 from ..config import Settings, get_settings
+
+logger = logging.getLogger(__name__)
 
 
 EXTRACTION_SCHEMAS: dict[str, dict[str, Any]] = {
@@ -42,27 +45,84 @@ EXTRACTION_SCHEMAS: dict[str, dict[str, Any]] = {
 
 
 class NutrientAdapter:
+    """Adapter for the Nutrient Data Extraction API.
+
+    Returns a structured dict::
+
+        {
+            "data": {<extracted fields>},
+            "metadata": {<per-field provenance from Nutrient>},
+            "provider": "nutrient",
+            "mode": "live" | "mock",
+        }
+    """
+
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
 
     async def extract(self, file_path: str, document_type: str) -> dict[str, Any]:
-        if self.settings.use_mock_nutrient or not self.settings.nutrient_api_key:
+        """Extract structured data from a document.
+
+        When ``use_mock_nutrient`` is *True*, deterministic mock data is
+        returned without any network call.  When it is *False* the real
+        Nutrient Data Extraction API is called; a missing API key raises
+        ``ValueError`` instead of silently falling back to mocks.
+        """
+        if self.settings.use_mock_nutrient:
             return self._mock_extract(Path(file_path), document_type)
 
-        schema = EXTRACTION_SCHEMAS.get(document_type, {"type": "object", "properties": {}})
+        if not self.settings.nutrient_api_key:
+            raise ValueError(
+                "TRUSTFLOW_NUTRIENT_API_KEY is required when "
+                "TRUSTFLOW_USE_MOCK_NUTRIENT=false"
+            )
+
+        schema = EXTRACTION_SCHEMAS.get(
+            document_type, {"type": "object", "properties": {}}
+        )
+        instructions = {"schema": schema}
         headers = {"Authorization": f"Bearer {self.settings.nutrient_api_key}"}
+
         async with httpx.AsyncClient(timeout=90) as client:
-            with open(file_path, "rb") as file_handle:
+            with open(file_path, "rb") as fh:
                 response = await client.post(
                     self.settings.nutrient_api_url,
                     headers=headers,
-                    files={"file": (Path(file_path).name, file_handle, "application/pdf")},
-                    data={"schema": json.dumps(schema)},
+                    files={"file": (Path(file_path).name, fh, "application/pdf")},
+                    data={"instructions": json.dumps(instructions)},
                 )
+
         response.raise_for_status()
-        return response.json()
+        payload = response.json()
+        output = payload.get("output", {})
+
+        return {
+            "data": output.get("data", {}),
+            "metadata": output.get("metadata", {}),
+            "provider": "nutrient",
+            "mode": "live",
+        }
+
+    # ------------------------------------------------------------------
+    # Mock helpers (deterministic, $0, no network)
+    # ------------------------------------------------------------------
 
     def _mock_extract(self, file_path: Path, document_type: str) -> dict[str, Any]:
+        raw = self._mock_data(file_path, document_type)
+        confidence = raw.pop("_confidence", None)
+        metadata: dict[str, Any] = {}
+        if confidence is not None:
+            for field in raw:
+                metadata[field] = {"confidence": confidence}
+        return {
+            "data": raw,
+            "metadata": metadata,
+            "provider": "nutrient",
+            "mode": "mock",
+        }
+
+    @staticmethod
+    def _mock_data(file_path: Path, document_type: str) -> dict[str, Any]:
         name = file_path.name.lower()
         if "case2" in name:
             if document_type == "invoice":

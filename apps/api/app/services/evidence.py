@@ -27,14 +27,45 @@ def persist_extraction(
     *,
     database: Database = db,
 ) -> list[str]:
+    """Persist extraction results as individual evidence facts.
+
+    ``extraction`` may be a *structured* adapter response::
+
+        {"data": {...}, "metadata": {...}, "provider": "nutrient", "mode": "..."}
+
+    or a legacy *flat* dict (backward-compatible).  Per-field confidence
+    and provenance (bounding box, page, grounding score) are taken from
+    ``metadata`` when available — no values are invented.
+    """
     ids: list[str] = []
-    default_confidence = extraction.get("_confidence")
-    for field, value in extraction.items():
+
+    # Structured format — {"data": ..., "metadata": ...}
+    if "data" in extraction and isinstance(extraction.get("data"), dict):
+        data = extraction["data"]
+        metadata = extraction.get("metadata", {})
+    else:
+        # Legacy flat format
+        data = extraction
+        metadata = {}
+
+    for field, value in data.items():
         if field.startswith("_") or value in (None, ""):
             continue
         evidence_type, predicate = FIELD_MAP.get(field, (document_type, f"{document_type}.{field}"))
         if field == "contract_id" and document_type != "assignment":
             predicate = f"{document_type}.contract_id"
+
+        # Per-field provenance from Nutrient metadata
+        field_meta = metadata.get(field) if isinstance(metadata, dict) else None
+        confidence = (
+            field_meta.get("confidence")
+            if isinstance(field_meta, dict)
+            else None
+        )
+        provenance_info: dict = {"field": field}
+        if isinstance(field_meta, dict) and field_meta:
+            provenance_info["provenance"] = field_meta
+
         evidence_id = str(uuid4())
         database.insert(
             "evidence",
@@ -47,11 +78,11 @@ def persist_extraction(
                 "subject": document_type,
                 "predicate": predicate,
                 "object_value": str(value),
-                "confidence": default_confidence,
+                "confidence": confidence,
                 "valid_from": None,
                 "valid_to": None,
                 "verification_status": "extracted",
-                "metadata_json": {"field": field},
+                "metadata_json": provenance_info,
                 "created_at": utc_now(),
             },
         )

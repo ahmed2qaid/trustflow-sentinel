@@ -1,19 +1,13 @@
-from pathlib import Path
+import shutil
 from uuid import uuid4
 
 from fastapi import APIRouter
 
-from ..config import get_settings
+from ..config import get_settings, PROJECT_ROOT
 from ..db import db, utc_now
 from ..services.audit import audit
 
 router = APIRouter(prefix="/demo", tags=["demo"])
-
-
-def _ensure_placeholder(path: Path, label: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if not path.exists():
-        path.write_text(f"Synthetic demo placeholder: {label}\n", encoding="utf-8")
 
 
 @router.post("/reset")
@@ -55,7 +49,9 @@ def seed_demo():
     )
 
     settings = get_settings()
-    upload_dir = Path(settings.upload_dir)
+    upload_dir = settings.resolve_upload_dir()
+    demo_data_dir = PROJECT_ROOT / "demo-data" / "generated"
+
     cases = [
         {
             "id": "case-1-safe",
@@ -122,8 +118,18 @@ def seed_demo():
             },
         )
         for doc_type, filename in case["docs"]:
-            path = upload_dir / filename
-            _ensure_placeholder(path, f"{case['id']} {doc_type}")
+            source = demo_data_dir / filename
+            destination = upload_dir / filename
+
+            if not source.exists():
+                raise ValueError(f"Missing demo PDF file: {source}")
+            
+            with open(source, "rb") as f:
+                if not f.read(5).startswith(b"%PDF-"):
+                    raise ValueError(f"Demo file is not a valid PDF: {source}")
+
+            shutil.copy2(source, destination)
+
             db.insert(
                 "documents",
                 {
@@ -131,7 +137,7 @@ def seed_demo():
                     "request_id": case["id"],
                     "document_type": doc_type,
                     "filename": filename,
-                    "file_path": str(path),
+                    "file_path": str(destination),
                     "processing_status": "uploaded",
                     "extraction_json": None,
                     "created_at": now,

@@ -4,6 +4,9 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+API_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
 class Settings(BaseSettings):
     app_name: str = "TrustFlow Sentinel API"
     app_env: str = "development"
@@ -25,9 +28,14 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="TRUSTFLOW_", extra="ignore")
 
-    def ensure_dirs(self) -> None:
-        Path(self.upload_dir).mkdir(parents=True, exist_ok=True)
+    def resolve_upload_dir(self) -> Path:
+        p = Path(self.upload_dir)
+        if not p.is_absolute():
+            p = API_ROOT / p
+        return p
 
+    def ensure_dirs(self) -> None:
+        self.resolve_upload_dir().mkdir(parents=True, exist_ok=True)
 
 @lru_cache
 def get_settings() -> Settings:
