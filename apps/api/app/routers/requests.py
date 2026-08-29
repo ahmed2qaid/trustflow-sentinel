@@ -132,6 +132,13 @@ async def web_enrichment(request_id: str):
     adapter = SerpApiAdapter()
     signal = await adapter.company_signal(item["requested_payee_name"], item.get("request_domain"))
     db.execute("DELETE FROM external_signals WHERE request_id = ? AND signal_type = ?", (request_id, "domain_consistency"))
+    
+    metadata = signal.get("metadata", {})
+    if "provider" in signal:
+        metadata["provider"] = signal["provider"]
+    if "mode" in signal:
+        metadata["mode"] = signal["mode"]
+        
     signal_id = str(uuid4())
     db.insert(
         "external_signals",
@@ -143,7 +150,7 @@ async def web_enrichment(request_id: str):
             "status": signal["status"],
             "value": signal.get("value"),
             "source_url": signal.get("source_url"),
-            "metadata_json": signal.get("metadata", {}),
+            "metadata_json": metadata,
             "created_at": utc_now(),
         },
     )

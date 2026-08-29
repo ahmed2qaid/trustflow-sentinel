@@ -16,8 +16,14 @@ class SerpApiAdapter:
         *,
         location: str = "New York, New York, United States",
     ) -> dict:
-        if self.settings.use_mock_serpapi or not self.settings.serpapi_api_key:
+        if self.settings.use_mock_serpapi:
             return self._mock_signal(company_name, submitted_domain)
+
+        if not self.settings.serpapi_api_key:
+            raise ValueError(
+                "TRUSTFLOW_SERPAPI_API_KEY is required when "
+                "TRUSTFLOW_USE_MOCK_SERPAPI=false"
+            )
 
         params = {
             "engine": "google",
@@ -46,6 +52,8 @@ class SerpApiAdapter:
             "value": matching[0] if matching else organic[0].get("link") if organic else None,
             "query": params["q"],
             "source_url": matching[0] if matching else None,
+            "provider": "serpapi",
+            "mode": "live",
             "metadata": {"matched_results": matching, "result_count": len(organic)},
         }
 
@@ -69,5 +77,7 @@ class SerpApiAdapter:
             "value": "https://northstarfinance.com" if "NorthStar" in company_name else "https://abcmfg.example",
             "query": f'"{company_name}" official website',
             "source_url": None,
-            "metadata": {"mode": "mock", "submitted_domain": submitted_domain},
+            "provider": "serpapi",
+            "mode": "mock",
+            "metadata": {"submitted_domain": submitted_domain},
         }
