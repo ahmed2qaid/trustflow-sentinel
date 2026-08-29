@@ -56,7 +56,15 @@ scripts/                demo PDF generator
 .github/workflows/      CI
 ```
 
-## Quick start — $0 local mode
+## Quick start
+
+For Hackathon production, the React frontend connects to Xano:
+**React → Xano**
+(Configure `VITE_BACKEND_PROVIDER=xano` and `VITE_API_BASE_URL=https://...xano.io/...` in `apps/web/.env.local`).
+
+For local development, the React frontend connects to the FastAPI reference backend:
+**React → FastAPI**
+(Configure `VITE_BACKEND_PROVIDER=fastapi` and `VITE_API_BASE_URL=http://localhost:8000` in `apps/web/.env.local`).
 
 Requirements: Python 3.11+, Node 20+.
 

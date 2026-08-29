@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertCircle, ArrowLeft, Check, CheckCircle2, CircleDashed, FileText, Globe2, Play, ShieldX, UserCheck } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Check, CheckCircle2, CircleDashed, FileText, Globe2, Play, ShieldX } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 import { api, type Evaluation, type PaymentRequest, type PolicyCheck } from '../lib/api'
 import { StatusBadge } from '../components/StatusBadge'
@@ -16,11 +16,15 @@ export function RequestDetail() {
   const [busy, setBusy] = useState<string|null>(null)
   const [error, setError] = useState<string|null>(null)
 
-  async function refresh() {
-    const [req, docs, ev, sig, aud, evalData] = await Promise.all([
-      api.request(id), api.documents(id), api.evidence(id), api.signals(id), api.audit(id), api.evaluation(id)
-    ])
-    setRequest(req); setDocuments(docs); setEvidence(ev); setSignals(sig); setAudit(aud); setEvaluation(evalData)
+  const refresh = async () => {
+    try {
+      const [req, docs, ev, sig, aud, evalData] = await Promise.all([
+        api.request(id), api.documents(id), api.evidence(id), api.signals(id), api.audit(id), api.evaluation(id).catch(() => null)
+      ])
+      setRequest(req); setDocuments(docs); setEvidence(ev); setSignals(sig); setAudit(aud); setEvaluation(evalData)
+    } catch (e) {
+      console.error(e)
+    }
   }
   useEffect(() => { void refresh() }, [id])
 
@@ -33,6 +37,14 @@ export function RequestDetail() {
   if (!request) return <div className="page"><div className="empty-state">Loading case…</div></div>
   const decision = evaluation?.decision ?? request.final_decision
   const checks = evaluation?.checks ?? []
+  function safeFormatCurrency(amount: number, currency: string) {
+    if (!currency) return String(amount)
+    try {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount)
+    } catch {
+      return String(amount)
+    }
+  }
 
   return <div className="page detail-page">
     <Link to="/requests" className="back-link"><ArrowLeft size={15}/> Payment changes</Link>
@@ -58,9 +70,48 @@ export function RequestDetail() {
           </div>
           <p>{evaluation?.explanation ?? 'Process document evidence, collect live signals, then evaluate the request against deterministic policy.'}</p>
           {decision === 'REVIEW_REQUIRED' && <div className="review-actions">
-            <button onClick={()=>runStep('review',()=>api.review(id,'APPROVE','Evidence reviewed; approved for demo.'))} className="approve-btn"><UserCheck size={16}/> Approve after review</button>
-            <button onClick={()=>runStep('review',()=>api.review(id,'REJECT','Evidence did not satisfy reviewer.'))} className="reject-btn"><ShieldX size={16}/> Reject</button>
+            <button className="btn-outline" onClick={() => runStep('review',()=>api.review(id, 'REQUEST_CLARIFICATION', 'Need more info'))}>Request Clarification</button>
+            <button className="btn-outline" onClick={() => runStep('review',()=>api.review(id, 'REJECT', 'Rejected during manual review'))}>Reject</button>
+            <button className="btn-primary" onClick={() => runStep('review',()=>api.review(id, 'APPROVE', 'Approved manually'))}>Approve</button>
           </div>}
+        </section>
+
+        <section className="detail-section">
+          <h3>Payment Details</h3>
+          <div className="data-grid">
+            <div className="data-col">
+              <h4>Amount</h4>
+              <p className="data-amount">{safeFormatCurrency(request.amount, request.currency)}</p>
+            </div>
+            <div className="data-col">
+              <h4>Requested Payee</h4>
+              <p>{request.requested_payee_name}</p>
+              <p className="data-sub">{request.requested_bank_account}</p>
+            </div>
+            <div className="data-col">
+              <h4>Current Vendor Record</h4>
+              <p>{request.vendor?.current_payee_name}</p>
+              <p className="data-sub">{request.vendor?.current_bank_account}</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="detail-section">
+          <h3>Evidence</h3>
+          {evidence.length === 0 ? <p className="empty-text">No evidence extracted yet.</p> :
+            <table className="data-table">
+              <thead><tr><th>Source</th><th>Predicate</th><th>Value</th></tr></thead>
+              <tbody>
+                {evidence.map((e, i) => (
+                  <tr key={i}>
+                    <td><span className="badge badge-neutral">{e.source_type as string}</span></td>
+                    <td className="code-font">{e.predicate as string}</td>
+                    <td>{e.object_value as string}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          }
         </section>
 
         <section className="panel">

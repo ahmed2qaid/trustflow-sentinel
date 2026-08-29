@@ -7,15 +7,26 @@ __pycache__/
 trustflow.db
 uploads/
 
+# Python build metadata
+*.egg-info/
+
 # Node
 node_modules/
 dist/
 .vite/
 
+# TypeScript build cache
+*.tsbuildinfo
+
 # Secrets
 .env
 .env.*
 !.env.example
+
+# Local Xano validation scripts
+xano_test.py
+xano_validate.py
+xano_final.py
 
 # OS / editors
 .DS_Store
