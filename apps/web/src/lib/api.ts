@@ -134,6 +134,29 @@ function ensureFeature(name: string): Promise<never> {
   return Promise.reject(new Error(`Feature '${name}' is not available until live integration is enabled in Xano.`))
 }
 
+export interface TrustCheckStage {
+  status: 'success' | 'failed' | 'pending'
+  documents_processed?: number
+  evidence_created?: number
+  searches_executed?: number
+  signals_created?: number
+  decision?: Decision
+  error?: unknown
+}
+
+export interface TrustCheckResult {
+  request_id: string
+  orchestration: 'completed' | 'failed'
+  failed_stage?: string
+  stages?: {
+    document_processing?: TrustCheckStage
+    web_enrichment?: TrustCheckStage
+    policy_evaluation?: TrustCheckStage
+  }
+  decision?: Decision
+  requires_human_review?: boolean
+}
+
 export const api = {
   health: () => {
     if (provider === 'xano') return Promise.resolve({status: 'ok', integrations: {}})
@@ -152,15 +175,9 @@ export const api = {
     }
     return req
   },
-  documents: (id: string) => {
-    if (provider === 'xano') return Promise.resolve([])
-    return call<Array<Record<string, unknown>>>(apiPath(`/requests/${id}/documents`))
-  },
+  documents: (id: string) => call<Array<Record<string, unknown>>>(apiPath(`/requests/${id}/documents`)),
   evidence: (id: string) => call<Array<Record<string, unknown>>>(apiPath(`/requests/${id}/evidence`)),
-  signals: (id: string) => {
-    if (provider === 'xano') return Promise.resolve([])
-    return call<Array<Record<string, unknown>>>(apiPath(`/requests/${id}/signals`))
-  },
+  signals: (id: string) => call<Array<Record<string, unknown>>>(apiPath(`/requests/${id}/signals`)),
   audit: (id: string) => call<Array<Record<string, unknown>>>(apiPath(`/requests/${id}/audit`)),
   evaluation: async (id: string) => {
     if (provider === 'xano') {
@@ -178,14 +195,8 @@ export const api = {
     if (provider === 'xano') return ensureFeature('Demo Reset')
     return call<{status: string}>(apiPath('/demo/reset'), {method: 'POST'})
   },
-  processDocuments: (id: string) => {
-    if (provider === 'xano') return ensureFeature('Process Documents (Coming in Nutrient Integration Phase)')
-    return call(apiPath(`/requests/${id}/process-documents`), {method: 'POST'})
-  },
-  enrich: (id: string) => {
-    if (provider === 'xano') return ensureFeature('Web Enrichment (Coming in SerpApi Integration Phase)')
-    return call(apiPath(`/requests/${id}/web-enrichment`), {method: 'POST'})
-  },
+  processDocuments: (id: string) => call(apiPath(`/requests/${id}/process-documents`), {method: 'POST'}),
+  enrich: (id: string) => call(apiPath(`/requests/${id}/web-enrichment`), {method: 'POST'}),
   evaluate: async (id: string) => {
     const res = await call<Record<string, unknown>>(apiPath(`/requests/${id}/evaluate`), {method: 'POST'})
     if (provider === 'xano') {
@@ -206,5 +217,6 @@ export const api = {
       method: 'POST',
       body
     })
-  }
+  },
+  runTrustCheck: (id: string) => call<TrustCheckResult>(apiPath(`/requests/${id}/run-trust-check`), { method: 'POST' })
 }

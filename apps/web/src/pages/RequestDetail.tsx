@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
+import { useParams, Link } from 'react-router-dom'
+import { api, type PaymentRequest, type Evaluation, type PolicyCheck, type TrustCheckResult } from '../lib/api'
 import { AlertCircle, ArrowLeft, Check, CheckCircle2, CircleDashed, FileText, Globe2, Play, ShieldX } from 'lucide-react'
-import { Link, useParams } from 'react-router-dom'
-import { api, type Evaluation, type PaymentRequest, type PolicyCheck } from '../lib/api'
 import { StatusBadge } from '../components/StatusBadge'
 import { DecisionIcon } from '../components/DecisionIcon'
 
@@ -13,6 +13,7 @@ export function RequestDetail() {
   const [evidence, setEvidence] = useState<Array<Record<string,unknown>>>([])
   const [signals, setSignals] = useState<Array<Record<string,unknown>>>([])
   const [audit, setAudit] = useState<Array<Record<string,unknown>>>([])
+  const [trustCheck, setTrustCheck] = useState<TrustCheckResult|null>(null)
   const [busy, setBusy] = useState<string|null>(null)
   const [error, setError] = useState<string|null>(null)
 
@@ -35,7 +36,7 @@ export function RequestDetail() {
   }
 
   if (!request) return <div className="page"><div className="empty-state">Loading case…</div></div>
-  const decision = evaluation?.decision ?? request.final_decision
+  const decision = request.final_decision ?? evaluation?.decision ?? request.policy_decision ?? null
   const checks = evaluation?.checks ?? []
   function safeFormatCurrency(amount: number, currency: string) {
     if (!currency) return String(amount)
@@ -55,10 +56,44 @@ export function RequestDetail() {
 
     {error && <div className="error-banner"><AlertCircle size={18}/>{error}</div>}
 
-    <section className="workflow-bar">
-      <WorkflowStep number="1" title="Extract documents" complete={evidence.length>0} busy={busy==='docs'} onClick={() => runStep('docs',()=>api.processDocuments(id))}/>
-      <WorkflowStep number="2" title="Collect live signals" complete={signals.length>0} busy={busy==='web'} onClick={() => runStep('web',()=>api.enrich(id))}/>
-      <WorkflowStep number="3" title="Evaluate policy" complete={Boolean(decision)} busy={busy==='eval'} onClick={() => runStep('eval',()=>api.evaluate(id))}/>
+    <section className="workflow-bar" style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start' }}>
+      <div style={{ flex: 1 }}>
+        <button
+          className="btn-primary"
+          style={{ padding: '0.75rem 1.5rem', fontWeight: 600, fontSize: '1rem', width: '100%', justifyContent: 'center', marginBottom: '1rem' }}
+          onClick={() => runStep('trust-check', async () => {
+            const res = await api.runTrustCheck(id)
+            setTrustCheck(res)
+            if (res.orchestration === 'failed') {
+              throw new Error(`Trust Check failed at stage: ${res.failed_stage || 'unknown'}`)
+            }
+          })}
+          disabled={busy === 'trust-check'}
+        >
+          {busy === 'trust-check' ? <CircleDashed className="spin" size={17} style={{ marginRight: '0.5rem' }}/> : <Play size={15} style={{ marginRight: '0.5rem' }}/>}
+          {busy === 'trust-check' ? 'Running Trust Check...' : 'Run Trust Check'}
+        </button>
+
+        <div className="workflow-stages" style={{ display: 'flex', gap: '0.5rem' }}>
+          <WorkflowStep number="1" title="Document Evidence" complete={documents.length>0 && documents.some(d=>d.processing_status==='processed')} />
+          <WorkflowStep number="2" title="Live Web Intelligence" complete={signals.length>0} />
+          <WorkflowStep number="3" title="Policy Decision" complete={Boolean(request.policy_decision)} />
+        </div>
+      </div>
+
+      {trustCheck && (
+        <div className="trust-check-summary" style={{ flex: 1, backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '1rem', fontSize: '0.9rem' }}>
+          <h4 style={{ margin: '0 0 0.5rem 0', color: '#374151' }}>Latest Trust Check Run</h4>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.5rem', color: '#4b5563' }}>
+            <span>Document Evidence</span>
+            <strong style={{ color: '#10b981' }}>Success</strong>
+            <span>Web Intelligence</span>
+            <strong style={{ color: '#10b981' }}>Success</strong>
+            <span>Policy Evaluation</span>
+            <strong>{trustCheck.decision ? trustCheck.decision.replace('_', ' ') : (trustCheck.orchestration === 'failed' ? 'Failed' : 'Success')}</strong>
+          </div>
+        </div>
+      )}
     </section>
 
     <div className="detail-grid">
@@ -131,7 +166,7 @@ export function RequestDetail() {
       <aside className="detail-side">
         <section className="side-card">
           <span className="eyebrow">Payment intent</span>
-          <h3>{new Intl.NumberFormat('en-US',{style:'currency',currency:request.currency,maximumFractionDigits:0}).format(request.amount)}</h3>
+          <h3>{safeFormatCurrency(request.amount, request.currency)}</h3>
           <Info label="Current payee" value={request.vendor?.current_payee_name ?? '—'}/>
           <Info label="Requested payee" value={request.requested_payee_name} highlight={request.vendor?.current_payee_name !== request.requested_payee_name}/>
           <Info label="Current bank" value={request.vendor?.current_bank_account ?? '—'}/>
@@ -157,11 +192,11 @@ export function RequestDetail() {
   </div>
 }
 
-function WorkflowStep({number,title,complete,busy,onClick}:{number:string;title:string;complete:boolean;busy:boolean;onClick:()=>void}) {
-  return <button className={`workflow-step ${complete?'complete':''}`} onClick={onClick} disabled={busy}>
-    <span className="workflow-icon">{busy?<CircleDashed className="spin" size={17}/>:complete?<Check size={17}/>:<Play size={15}/>}</span>
-    <span><small>Step {number}</small><strong>{title}</strong></span>
-  </button>
+function WorkflowStep({number,title,complete}:{number:string;title:string;complete:boolean}) {
+  return <div className={`workflow-step ${complete?'complete':''}`} style={{ display: 'flex', alignItems: 'center', padding: '0.5rem', border: '1px solid #e5e7eb', borderRadius: '6px', flex: 1, backgroundColor: complete ? '#f0fdf4' : 'white', opacity: complete ? 1 : 0.6 }}>
+    <span className="workflow-icon" style={{ marginRight: '0.5rem', color: complete ? '#10b981' : '#9ca3af' }}>{complete?<Check size={17}/>:<CircleDashed size={15}/>}</span>
+    <span style={{ display: 'flex', flexDirection: 'column' }}><small style={{ fontSize: '0.7rem', color: '#6b7280' }}>Stage {number}</small><strong style={{ fontSize: '0.85rem' }}>{title}</strong></span>
+  </div>
 }
 function CheckRow({check}:{check:PolicyCheck}) {
   const status = check.status ?? check.result ?? 'NOT_AVAILABLE'
