@@ -36,6 +36,7 @@ export interface PolicyCheck {
   status?: string
   severity: 'info' | 'warning' | 'critical'
   reason: string
+  _evidence_ids?: number[]
 }
 
 export interface Evaluation {
@@ -157,6 +158,26 @@ export interface TrustCheckResult {
   requires_human_review?: boolean
 }
 
+export interface PolicyResult {
+  id: string
+  request_id: string
+  rule_code: string
+  result: string
+  severity: string
+  reason: string
+  evidence_ids_json?: number[] | Record<string, unknown> | null
+  created_at: string
+}
+
+export function safeFormatCurrency(amount: number, currency: string) {
+  if (!currency) return String(amount)
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 }).format(amount)
+  } catch {
+    return String(amount)
+  }
+}
+
 export const api = {
   health: () => {
     if (provider === 'xano') return Promise.resolve({status: 'ok', integrations: {}})
@@ -179,13 +200,23 @@ export const api = {
   evidence: (id: string) => call<Array<Record<string, unknown>>>(apiPath(`/requests/${id}/evidence`)),
   signals: (id: string) => call<Array<Record<string, unknown>>>(apiPath(`/requests/${id}/signals`)),
   audit: (id: string) => call<Array<Record<string, unknown>>>(apiPath(`/requests/${id}/audit`)),
+  policyResults: (id: string) => call<PolicyResult[]>(apiPath(`/requests/${id}/policy-results`)),
   evaluation: async (id: string) => {
     if (provider === 'xano') {
-      const req = await api.request(id)
+      const [req, policyResults] = await Promise.all([
+        api.request(id),
+        api.policyResults(id).catch(() => [] as PolicyResult[])
+      ])
       return {
         request_id: String(id),
         decision: req.policy_decision ?? null,
-        checks: []
+        checks: policyResults.map(pr => ({
+          rule_code: pr.rule_code,
+          result: pr.result,
+          severity: (pr.severity ?? 'info').toLowerCase() as 'info' | 'warning' | 'critical',
+          reason: pr.reason,
+          _evidence_ids: Array.isArray(pr.evidence_ids_json) ? pr.evidence_ids_json : undefined
+        }))
       } as Evaluation
     }
     return call<Evaluation>(apiPath(`/requests/${id}/evaluation`))

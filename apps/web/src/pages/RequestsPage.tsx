@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowRight, Search } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { api, type PaymentRequest } from '../lib/api'
+import { api, safeFormatCurrency, type PaymentRequest } from '../lib/api'
 import { StatusBadge } from '../components/StatusBadge'
 
 export function RequestsPage() {
@@ -18,7 +18,7 @@ export function RequestsPage() {
         {filtered.map(item => <Link to={`/requests/${item.id}`} className="table-row" key={item.id}>
           <span><strong>{item.vendor_name}</strong><small>{item.invoice_number} · {item.contract_id}</small></span>
           <span><strong>{item.requested_payee_name}</strong><small>{item.requested_bank_account}</small></span>
-          <span><strong>{new Intl.NumberFormat('en-US',{style:'currency',currency:item.currency,maximumFractionDigits:0}).format(item.amount)}</strong></span>
+          <span><strong>{safeFormatCurrency(item.amount, item.currency)}</strong></span>
           <span><StatusBadge decision={item.final_decision ?? item.policy_decision ?? null} status={item.status}/></span>
           <span className="row-arrow"><ArrowRight size={16}/></span>
         </Link>)}

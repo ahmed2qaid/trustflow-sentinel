@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { api, type PaymentRequest, type Evaluation, type PolicyCheck, type TrustCheckResult } from '../lib/api'
+import { api, safeFormatCurrency, type PaymentRequest, type Evaluation, type PolicyCheck, type TrustCheckResult } from '../lib/api'
 import { AlertCircle, ArrowLeft, Check, CheckCircle2, CircleDashed, FileText, Globe2, Play, ShieldX } from 'lucide-react'
 import { StatusBadge } from '../components/StatusBadge'
 import { DecisionIcon } from '../components/DecisionIcon'
@@ -17,7 +17,7 @@ export function RequestDetail() {
   const [busy, setBusy] = useState<string|null>(null)
   const [error, setError] = useState<string|null>(null)
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     try {
       const [req, docs, ev, sig, aud, evalData] = await Promise.all([
         api.request(id), api.documents(id), api.evidence(id), api.signals(id), api.audit(id), api.evaluation(id).catch(() => null)
@@ -26,8 +26,9 @@ export function RequestDetail() {
     } catch (e) {
       console.error(e)
     }
-  }
-  useEffect(() => { void refresh() }, [id])
+  }, [id])
+
+  useEffect(() => { void refresh() }, [refresh])
 
   async function runStep(label:string, action:()=>Promise<unknown>) {
     setBusy(label); setError(null)
@@ -38,14 +39,6 @@ export function RequestDetail() {
   if (!request) return <div className="page"><div className="empty-state">Loading case…</div></div>
   const decision = request.final_decision ?? evaluation?.decision ?? request.policy_decision ?? null
   const checks = evaluation?.checks ?? []
-  function safeFormatCurrency(amount: number, currency: string) {
-    if (!currency) return String(amount)
-    try {
-      return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount)
-    } catch {
-      return String(amount)
-    }
-  }
 
   return <div className="page detail-page">
     <Link to="/requests" className="back-link"><ArrowLeft size={15}/> Payment changes</Link>
@@ -75,9 +68,9 @@ export function RequestDetail() {
         </button>
 
         <div className="workflow-stages" style={{ display: 'flex', gap: '0.5rem' }}>
-          <WorkflowStep number="1" title="Document Evidence" complete={documents.length>0 && documents.some(d=>d.processing_status==='processed')} />
-          <WorkflowStep number="2" title="Live Web Intelligence" complete={signals.length>0} />
-          <WorkflowStep number="3" title="Policy Decision" complete={Boolean(request.policy_decision)} />
+          <WorkflowStep number="1" title="Document Evidence" sponsor="Nutrient" complete={documents.length>0 && documents.some(d=>d.processing_status==='processed')} />
+          <WorkflowStep number="2" title="Live Web Intelligence" sponsor="SerpApi" complete={signals.length>0} />
+          <WorkflowStep number="3" title="Policy Decision" sponsor="Xano" complete={Boolean(request.policy_decision)} />
         </div>
       </div>
 
@@ -135,7 +128,7 @@ export function RequestDetail() {
           <h3>Evidence</h3>
           {evidence.length === 0 ? <p className="empty-text">No evidence extracted yet.</p> :
             <table className="data-table">
-              <thead><tr><th>Source</th><th>Predicate</th><th>Value</th></tr></thead>
+              <thead><tr><th>Source</th><th>Field</th><th>Extracted Value</th></tr></thead>
               <tbody>
                 {evidence.map((e, i) => (
                   <tr key={i}>
@@ -156,10 +149,17 @@ export function RequestDetail() {
 
         <section className="panel" id="evidence">
           <div className="panel-heading"><div><span className="eyebrow">Machine-readable evidence</span><h2>Evidence ledger</h2></div><span className="policy-count">{evidence.length} facts</span></div>
-          {evidence.length ? <div className="evidence-grid">{evidence.map((item)=><div className="evidence-card" key={String(item.id)}>
-            <div className="evidence-top"><span className="source-pill"><FileText size={13}/>{String(item.source_type)}</span><span className="confidence">{item.confidence ? `${Math.round(Number(item.confidence)*100)}%` : '—'}</span></div>
+          {evidence.length ? <div className="evidence-grid">{evidence.map((item)=>{
+            const prov = item.provenance_json as Record<string,unknown> | undefined
+            const pageStr = prov?.pageIndex !== undefined ? ` · Page ${Number(prov.pageIndex) + 1}` : ''
+            return <div className="evidence-card" key={String(item.id)}>
+            <div className="evidence-top">
+              <span className="source-pill"><FileText size={13}/>{String(item.source_type)}{pageStr}</span>
+              <span className="confidence">{item.confidence ? `${Math.round(Number(item.confidence)*100)}%` : '—'}</span>
+            </div>
             <strong>{String(item.predicate)}</strong><p>{String(item.object_value ?? '—')}</p>
-          </div>)}</div> : <div className="empty-state">No extracted evidence yet.</div>}
+          </div>
+          })}</div> : <div className="empty-state">No extracted evidence yet.</div>}
         </section>
       </div>
 
@@ -181,6 +181,7 @@ export function RequestDetail() {
         <section className="side-card">
           <span className="eyebrow">Live intelligence</span><h3 className="small-heading">External signals</h3>
           {signals.length ? signals.map(signal=><div className="signal-row" key={String(signal.id)}><Globe2 size={17}/><div><strong>{String(signal.signal_type)}</strong><small>{String(signal.value ?? signal.query)}</small></div><span className={`signal-${String(signal.status).toLowerCase()}`}>{String(signal.status)}</span></div>) : <div className="mini-empty">No external signal yet.</div>}
+          <div style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: '#6b7280', textAlign: 'right' }}>Powered by SerpApi</div>
         </section>
 
         <section className="side-card" id="activity">
@@ -192,14 +193,34 @@ export function RequestDetail() {
   </div>
 }
 
-function WorkflowStep({number,title,complete}:{number:string;title:string;complete:boolean}) {
+function WorkflowStep({number,title,sponsor,complete}:{number:string;title:string;sponsor?:string;complete:boolean}) {
   return <div className={`workflow-step ${complete?'complete':''}`} style={{ display: 'flex', alignItems: 'center', padding: '0.5rem', border: '1px solid #e5e7eb', borderRadius: '6px', flex: 1, backgroundColor: complete ? '#f0fdf4' : 'white', opacity: complete ? 1 : 0.6 }}>
     <span className="workflow-icon" style={{ marginRight: '0.5rem', color: complete ? '#10b981' : '#9ca3af' }}>{complete?<Check size={17}/>:<CircleDashed size={15}/>}</span>
-    <span style={{ display: 'flex', flexDirection: 'column' }}><small style={{ fontSize: '0.7rem', color: '#6b7280' }}>Stage {number}</small><strong style={{ fontSize: '0.85rem' }}>{title}</strong></span>
+    <span style={{ display: 'flex', flexDirection: 'column' }}>
+      <small style={{ fontSize: '0.7rem', color: '#6b7280' }}>Stage {number}</small>
+      <strong style={{ fontSize: '0.85rem' }}>{title}</strong>
+      {sponsor && <small style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '2px' }}>Powered by {sponsor}</small>}
+    </span>
   </div>
 }
 function CheckRow({check}:{check:PolicyCheck}) {
   const status = check.status ?? check.result ?? 'NOT_AVAILABLE'
-  return <div className="check-row"><div className={`check-icon check-${status.toLowerCase()}`}>{status==='PASS'?<CheckCircle2 size={18}/>:status==='FAIL'?<ShieldX size={18}/>:<AlertCircle size={18}/>}</div><div><strong>{check.label ?? check.rule_code.replaceAll('_',' ')}</strong><p>{check.reason}</p></div><span className={`check-state state-${status.toLowerCase()}`}>{status.replaceAll('_',' ')}</span></div>
+  const evIds = check._evidence_ids && check._evidence_ids.length > 0 ? check._evidence_ids : null
+  return <div className="check-row">
+    <div className={`check-icon check-${status.toLowerCase()}`}>{status==='PASS'?<CheckCircle2 size={18}/>:status==='FAIL'?<ShieldX size={18}/>:<AlertCircle size={18}/>}</div>
+    <div style={{ flex: 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+        <strong>{check.label ?? check.rule_code.replaceAll('_',' ')}</strong>
+        <span className={`badge`} style={{
+          fontSize: '0.65rem',
+          backgroundColor: check.severity === 'critical' ? '#fee2e2' : check.severity === 'warning' ? '#fef9c3' : '#f3f4f6',
+          color: check.severity === 'critical' ? '#991b1b' : check.severity === 'warning' ? '#854d0e' : '#374151'
+        }}>{(check.severity ?? 'INFO').toUpperCase()}</span>
+      </div>
+      <p style={{ margin: 0 }}>{check.reason}</p>
+      {evIds && <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.25rem' }}>Supporting evidence: #{evIds.join(', #')}</div>}
+    </div>
+    <span className={`check-state state-${status.toLowerCase()}`}>{status.replaceAll('_',' ')}</span>
+  </div>
 }
 function Info({label,value,highlight=false}:{label:string;value:string;highlight?:boolean}) { return <div className="info-row"><span>{label}</span><strong className={highlight?'highlight-value':''}>{value}</strong></div> }
