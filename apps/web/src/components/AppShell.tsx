@@ -10,12 +10,12 @@ export function AppShell() {
         <nav>
           <NavLink to="/" end><LayoutDashboard size={18}/> Overview</NavLink>
           <NavLink to="/requests"><FileCheck2 size={18}/> Payment changes</NavLink>
-          <a href="#evidence"><ShieldCheck size={18}/> Evidence policies</a>
-          <a href="#activity"><Activity size={18}/> Audit activity</a>
+          <NavLink to="/evidence-policies"><ShieldCheck size={18}/> Evidence policies</NavLink>
+          <NavLink to="/audit-activity"><Activity size={18}/> Audit activity</NavLink>
         </nav>
         <div className="sidebar-bottom">
           <div className="secure-chip"><span className="pulse-dot"/> Evidence-gated</div>
-          <a href="#settings"><Settings2 size={18}/> Settings</a>
+          <NavLink to="/settings"><Settings2 size={18}/> Settings</NavLink>
         </div>
       </aside>
       <main className="main-area">

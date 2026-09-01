@@ -12,6 +12,7 @@ export interface Vendor {
 
 export interface PaymentRequest {
   id: string
+  request_key?: string
   vendor_id: string
   vendor_name?: string
   invoice_number: string
