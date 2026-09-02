@@ -52,6 +52,8 @@ export interface Evaluation {
 const base = import.meta.env.VITE_API_BASE_URL ?? ''
 const provider = import.meta.env.VITE_BACKEND_PROVIDER ?? 'fastapi'
 
+export const backendProvider = provider
+
 function apiPath(path: string) {
   if (provider === 'xano') {
     return path
