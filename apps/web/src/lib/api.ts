@@ -79,7 +79,9 @@ async function call<T>(path: string, init?: RequestInit, retries = 2): Promise<T
 
   if (!response.ok) {
     const message = await response.text()
-    throw new Error(message || `Request failed: ${response.status}`)
+    const error = new Error(message || `Request failed: ${response.status}`) as Error & { status?: number }
+    error.status = response.status
+    throw error
   }
 
   const data = await response.json()

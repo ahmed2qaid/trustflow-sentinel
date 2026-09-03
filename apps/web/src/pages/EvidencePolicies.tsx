@@ -25,7 +25,7 @@ export function EvidencePolicies() {
         const evaluatedReqs = reqs.filter(r => r.policy_decision || r.final_decision)
         
         const allResults = await Promise.all(
-          evaluatedReqs.map(r => api.policyResults(String(r.id)).catch(() => [] as PolicyResult[]))
+          evaluatedReqs.map(r => api.policyResults(String(r.id)))
         )
         
         const aggregated: Record<string, AggregatedRule> = {}

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, type ReactNode } from 'react'
+﻿import { useEffect, useState, useCallback, type ReactNode } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { api, backendProvider, safeFormatCurrency, type PaymentRequest, type Evaluation, type PolicyCheck, type PolicyResult, type TrustCheckResult, type TrustCheckStage } from '../lib/api'
 import { AlertCircle, ArrowLeft, Check, CheckCircle2, CircleDashed, ExternalLink, FileText, Globe2, Play, Scale, ShieldCheck, ShieldX } from 'lucide-react'
@@ -17,30 +17,47 @@ export function RequestDetail() {
   const [trustCheck, setTrustCheck] = useState<TrustCheckResult|null>(null)
   const [busy, setBusy] = useState<string|null>(null)
   const [error, setError] = useState<string|null>(null)
+  const [notFound, setNotFound] = useState(false)
+  const [signalsError, setSignalsError] = useState(false)
+  const [auditError, setAuditError] = useState(false)
+  const [documentsError, setDocumentsError] = useState(false)
+  const [evidenceError, setEvidenceError] = useState(false)
+  const [policyError, setPolicyError] = useState(false)
 
   const refresh = useCallback(async () => {
+    setSignalsError(false); setAuditError(false); setDocumentsError(false); setEvidenceError(false); setPolicyError(false);
+    let req;
     try {
-      const [req, docs, ev, sig, aud, policyData] = await Promise.all([
-        api.request(id),
-        api.documents(id),
-        api.evidence(id),
-        api.signals(id),
-        api.audit(id),
-        api.policyResults(id).catch(() => [] as PolicyResult[])
-      ])
-      const evalData = backendProvider === 'xano'
-        ? evaluationFromPolicyResults(id, req, policyData)
-        : await api.evaluation(id).catch(() => null)
-      setRequest(req)
-      setDocuments(docs)
-      setEvidence(ev)
-      setSignals(sig)
-      setAudit(aud)
-      setEvaluation(evalData)
-      setPolicyResults(policyData)
+      req = await api.request(id)
     } catch (e) {
-      console.error(e)
+      console.error('Primary request failed:', e)
+      if ((e as Error & { status?: number }).status === 404) {
+        setNotFound(true)
+      } else {
+        setError('Unable to load case. Please try again.')
+      }
+      return
     }
+    setRequest(req)
+
+    const [docs, ev, sig, aud, policyData] = await Promise.all([
+      api.documents(id).catch(e => { console.error('Docs error:', e); setDocumentsError(true); return [] }),
+      api.evidence(id).catch(e => { console.error('Evidence error:', e); setEvidenceError(true); return [] }),
+      api.signals(id).catch(e => { console.error('Signals error:', e); setSignalsError(true); return [] }),
+      api.audit(id).catch(e => { console.error('Audit error:', e); setAuditError(true); return [] }),
+      api.policyResults(id).catch(e => { console.error('Policy error:', e); setPolicyError(true); return [] as PolicyResult[] })
+    ])
+
+    const evalData = backendProvider === 'xano'
+      ? evaluationFromPolicyResults(id, req, policyData)
+      : await api.evaluation(id).catch(() => null)
+
+    setDocuments(docs)
+    setEvidence(ev)
+    setSignals(sig)
+    setAudit(aud)
+    setEvaluation(evalData)
+    setPolicyResults(policyData)
   }, [id])
 
   useEffect(() => { void refresh() }, [refresh])
@@ -51,6 +68,34 @@ export function RequestDetail() {
     finally { setBusy(null) }
   }
 
+  if (notFound) {
+    return (
+      <div className="page">
+        <header className="page-header">
+          <Link to="/requests" className="back-link"><ArrowLeft size={16}/> Back to Payment Changes</Link>
+        </header>
+        <div className="empty-state">
+          <h3>Case not found</h3>
+          <p className="empty-text">This request may have been replaced by a newer demo seed.</p>
+          <Link to="/requests" className="btn-outline" style={{marginTop: 16}}>Back to Payment Changes</Link>
+        </div>
+      </div>
+    )
+  }
+  if (error && !request) {
+    return (
+      <div className="page">
+        <header className="page-header">
+          <Link to="/requests" className="back-link"><ArrowLeft size={16}/> Back to Payment Changes</Link>
+        </header>
+        <div className="empty-state">
+          <h3>Unable to load case</h3>
+          <p className="empty-text">Please try again.</p>
+          <Link to="/requests" className="btn-outline" style={{marginTop: 16}}>Back to Payment Changes</Link>
+        </div>
+      </div>
+    )
+  }
   if (!request) return <div className="page"><div className="empty-state">Loading case...</div></div>
   const decision = request.final_decision ?? trustCheck?.decision ?? evaluation?.decision ?? request.policy_decision ?? null
   const checks = evaluation?.checks ?? policyResults.map(toPolicyCheck)
@@ -111,7 +156,7 @@ export function RequestDetail() {
       <div className="execution-grid">
         <div className="execution-card">
           <div className="execution-card-heading"><span>Input Documents</span><strong>{documents.length}</strong></div>
-          {documents.length ? <div className="execution-documents">{documents.map(doc => {
+          {documentsError ? <div className="mini-empty" style={{color: '#ef4444'}}>Unable to load documents</div> : documents.length ? <div className="execution-documents">{documents.map(doc => {
             const safeUrl = safeDocumentUrl(doc.file_url)
             return <div className="execution-document" key={String(doc.id ?? doc.filename)}>
               <div>
@@ -151,9 +196,13 @@ export function RequestDetail() {
           <Metric label="Role" value="Orchestration + Deterministic Policy" />
           <Metric label="Policy checks" value={String(policyResults.length || checks.length)} />
           {checks.slice(0, 2).map((check, idx) => <div className="policy-proof" key={`${check.rule_code}-${idx}`}>
-            <strong>{check.rule_code}</strong>
-            <span>{String(check.status ?? check.result ?? 'NOT_AVAILABLE')} / {(check.severity ?? 'info').toUpperCase()}</span>
-            <p>{check.reason}</p>
+            <strong>{String(check.rule_code).replaceAll('_', ' ')}</strong>
+            <div style={{fontFamily: 'monospace', fontSize: '9px', color: '#607b7e', marginBottom: '4px'}}>{check.rule_code}</div>
+            <div style={{display: 'flex', gap: '8px', fontSize: '10px', marginTop: '4px'}}>
+              <span style={{fontWeight: 800, color: check.result === 'PASS' ? '#10b981' : check.result === 'FAIL' ? '#ef4444' : '#607b7e'}}>{String(check.status ?? check.result ?? 'NOT_AVAILABLE')}</span>
+              <span style={{fontWeight: 800, color: check.severity === 'critical' ? '#ef4444' : check.severity === 'warning' ? '#f59e0b' : '#3b82f6'}}>{(check.severity ?? 'info').toUpperCase()}</span>
+            </div>
+            <p style={{marginTop: '4px'}}>{check.reason}</p>
           </div>)}
           <button className="inline-action" onClick={() => scrollToSection('policy-checks')}>View all policy checks</button>
         </div>
@@ -171,7 +220,7 @@ export function RequestDetail() {
             <Metric label="Audit" value={execution.auditRecorded ? 'Recorded' : 'Not recorded yet'} />
           </div>
         </details>
-        {execution.auditRecorded && <button className="audit-proof" onClick={() => scrollToSection('activity')}>Audit recorded <Check size={13}/></button>}
+        {audit.length > 0 && <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}><span className="audit-proof" style={{cursor:'default'}}>Audit recorded <Check size={13}/></span><span style={{fontSize: '10px', color: '#6d8b8e'}}>Audit events: {audit.length}</span><button className="inline-action" style={{marginTop: 0}} onClick={() => scrollToSection('activity')}>View case timeline</button></div>}
       </div>
     </section>
 
@@ -218,7 +267,7 @@ export function RequestDetail() {
 
         <section className="detail-section">
           <h3>Evidence</h3>
-          {evidence.length === 0 ? <p className="empty-text">No evidence extracted yet.</p> :
+          {evidenceError ? <p className="empty-text" style={{color: '#ef4444'}}>Unable to load evidence.</p> : evidence.length === 0 ? <p className="empty-text">No evidence extracted yet.</p> :
             <table className="data-table">
               <thead><tr><th>Source</th><th>Field</th><th>Extracted Value</th></tr></thead>
               <tbody>
@@ -236,12 +285,12 @@ export function RequestDetail() {
 
         <section className="panel" id="policy-checks">
           <div className="panel-heading"><div><span className="eyebrow">Why this decision</span><h2>Policy checks</h2></div><span className="policy-count">{checks.length} checks</span></div>
-          {checks.length ? <div className="checks-list">{checks.map((check,idx)=><CheckRow check={check} key={`${check.rule_code}-${idx}`}/>)}</div> : <div className="empty-state">Run policy evaluation to see explainable checks.</div>}
+          {policyError ? <div className="empty-state" style={{color: '#ef4444'}}>Unable to load policy checks.</div> : checks.length ? <div className="checks-list">{checks.map((check,idx)=><CheckRow check={check} key={`${check.rule_code}-${idx}`}/>)}</div> : <div className="empty-state">Run policy evaluation to see explainable checks.</div>}
         </section>
 
         <section className="panel" id="evidence">
           <div className="panel-heading"><div><span className="eyebrow">Machine-readable evidence</span><h2>Evidence ledger</h2></div><span className="policy-count">{evidence.length} facts</span></div>
-          {evidence.length ? <div className="evidence-grid">{evidence.map((item)=>{
+          {evidenceError ? <div className="empty-state" style={{color: '#ef4444'}}>Unable to load evidence.</div> : evidence.length ? <div className="evidence-grid">{evidence.map((item)=>{
             const prov = item.provenance_json as Record<string,unknown> | undefined
             const pageStr = prov?.pageIndex !== undefined ? ` - Page ${Number(prov.pageIndex) + 1}` : ''
             return <div className="evidence-card" key={String(item.id)}>
@@ -267,18 +316,18 @@ export function RequestDetail() {
 
         <section className="side-card">
           <span className="eyebrow">Documents</span><h3 className="small-heading">Evidence package</h3>
-          <div className="doc-list">{documents.map(doc=><div className="doc-row" key={String(doc.id)}><FileText size={16}/><div><strong>{String(doc.document_type)}</strong><small>{String(doc.filename)}</small></div><span className={`tiny-status ${documentStatus(doc)==='READY'?'done':''}`}>{documentStatus(doc)}</span></div>)}</div>
+          {documentsError ? <div className="mini-empty" style={{color: '#ef4444'}}>Unable to load documents</div> : <div className="doc-list">{documents.map(doc=><div className="doc-row" key={String(doc.id)}><FileText size={16}/><div><strong>{String(doc.document_type)}</strong><small>{String(doc.filename)}</small></div><span className={`tiny-status ${documentStatus(doc)==='READY'?'done':''}`}>{documentStatus(doc)}</span></div>)}</div>}
         </section>
 
         <section className="side-card" id="signals">
           <span className="eyebrow">Live intelligence</span><h3 className="small-heading">External signals</h3>
-          {signals.length ? signals.map(signal=><div className="signal-row" key={String(signal.id)}><Globe2 size={17}/><div><strong>{String(signal.signal_type)}</strong><small>{String(signal.value ?? signal.query)}</small></div><span className={`signal-${String(signal.status).toLowerCase()}`}>{String(signal.status)}</span></div>) : <div className="mini-empty">No external signal yet.</div>}
+          {signalsError ? <div className="mini-empty" style={{color: '#ef4444'}}>Unable to load live intelligence</div> : signals.length ? signals.map(signal=><div className="signal-row" key={String(signal.id)}><Globe2 size={17}/><div><strong>{String(signal.signal_type)}</strong><small>{String(signal.value ?? signal.query)}</small></div><span className={`signal-${String(signal.status).toLowerCase()}`}>{String(signal.status)}</span></div>) : <div className="mini-empty">No external signal yet.</div>}
           <div style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: '#6b7280', textAlign: 'right' }}>Powered by SerpApi</div>
         </section>
 
         <section className="side-card" id="activity">
           <span className="eyebrow">Audit trail</span><h3 className="small-heading">Case timeline</h3>
-          <div className="timeline">{audit.slice().reverse().slice(0,8).map((item,idx)=><div className="timeline-row" key={String(item.id)}><span className="timeline-dot"/><div><strong>{String(item.action)}</strong><small>{new Date(String(item.created_at)).toLocaleString()}</small></div>{idx===0 && <span className="latest">latest</span>}</div>)}</div>
+          {auditError ? <div className="mini-empty" style={{color: '#ef4444'}}>Audit temporarily unavailable</div> : audit.length > 0 ? <div className="timeline">{audit.slice().reverse().slice(0,8).map((item,idx)=><div className="timeline-row" key={String(item.id)}><span className="timeline-dot"/><div><strong>{String(item.action)}</strong><small>{new Date(String(item.created_at)).toLocaleString()}</small></div>{idx===0 && <span className="latest">latest</span>}</div>)}</div> : <div className="mini-empty">No activity yet.</div>}
         </section>
       </aside>
     </div>
@@ -475,7 +524,7 @@ function humanReviewStatus(decision: string | null) {
 
 function humanReviewDetail(decision: string | null) {
   if (decision === 'ALLOW') return 'Human review not required'
-  if (decision === 'BLOCK') return 'Automatically blocked by deterministic policy'
+  if (decision === 'BLOCK') return 'Blocked by deterministic policy'
   if (decision === 'REVIEW_REQUIRED') return 'Awaiting human review'
   return 'No review state yet'
 }

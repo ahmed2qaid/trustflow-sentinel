@@ -25,7 +25,7 @@ export function AuditActivity() {
         const reqs = await api.requests()
         const audits = await Promise.all(
           reqs.map(async r => {
-            const history = await api.audit(String(r.id)).catch(() => [])
+            const history = await api.audit(String(r.id))
             return history.map(h => ({
               ...h,
               request_key: r.request_key || String(r.id),
