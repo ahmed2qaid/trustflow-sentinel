@@ -84,4 +84,4 @@ These PDFs are used to demonstrate the system's ability to extract and verify do
 ## Companion Demo Application
 
 A separate Acme Procurement Demo simulates an upstream enterprise procurement system submitting requests into TrustFlow.
-See [Acme Procurement Demo](https://github.com/ahmed2qaid/trustflow-procurement-demo) (Link will be updated).
+See [Acme Procurement Demo](https://github.com/ahmed2qaid/trustflow-procurement-demo) 
